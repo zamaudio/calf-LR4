@@ -441,7 +441,7 @@ public:
 class biquad_filter_module: public filter_module_iface
 {
 private:
-    dsp::biquad_d1<float> left[3], right[3];
+    dsp::biquad_lr4<float> left[3], right[3];
     int order;
 
 public:

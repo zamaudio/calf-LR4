@@ -26,6 +26,10 @@
 #include <complex>
 #include "primitives.h"
 
+#define IMAG (std::complex<double>(0,1))
+#define FILTER_TYPE_HP 1
+#define FILTER_TYPE_LP 2
+
 namespace dsp {
 
 /**
@@ -46,7 +50,7 @@ class biquad_coeffs
 {
 public:
     // filter coefficients
-    Coeff a0, a1, a2, b1, b2;
+    Coeff a0, a1, a2, b1, b2, gain;
     typedef std::complex<double> cfloat;
 
     biquad_coeffs()
@@ -291,6 +295,159 @@ public:
         a2 *= ib0;
     }
     
+/// Butterworth digital filter coefficient calculator code
+/// thanks to late Tony Fisher of University of York, Computer Science Dept
+void choosepole(std::complex<double> z)
+{
+	if (real(z) < 0.0)
+        {
+		if (polemask & 1) splane.poles[splane.numpoles++] = z;
+		polemask >>= 1;
+	}
+}
+
+void prewarp() {
+	warped_alpha1 = tan(M_PI * raw_alpha1) / M_PI;
+	warped_alpha2 = tan(M_PI * raw_alpha2) / M_PI;
+}
+
+void normalize(int type) {
+	double w1 = 2 * M_PI * warped_alpha1;
+	if(type==FILTER_TYPE_LP) {
+		for (int i = 0; i < splane.numpoles; i++) {
+			splane.poles[i] = splane.poles[i] * w1;
+		}
+		splane.numzeros = 0;
+	}
+
+	if(type==FILTER_TYPE_HP) {
+		for (int i=0; i < splane.numpoles; i++) splane.poles[i] = w1 / splane.poles[i];
+		for (int i=0; i < splane.numpoles; i++) splane.zeros[i] = 0.0;	 /* also N zeros at (0,0) */
+		splane.numzeros = splane.numpoles;
+	}
+}
+
+void multin(std::complex<double> w, int npz, std::complex<double> coeffs[]){
+	/* multiply factor (z-w) into coeffs */
+	std::complex<double> nw = -w;
+	for (int i = npz; i >= 1; i--) coeffs[i] = (nw * coeffs[i]) + coeffs[i-1];
+	coeffs[0] = nw * coeffs[0];
+}
+
+std::complex<double> eval(std::complex<double> coeffs[], int npz, std::complex<double> z) {
+	 std::complex<double> sum = 0.0;
+	 for (int i = npz; i >= 0; i--) sum = (sum * z) + coeffs[i];
+	 return sum;
+}
+
+std::complex<double> evaluate(std::complex<double> topco[], int nz, std::complex<double> botco[], int np, std::complex<double> z)
+{ /* evaluate response, substituting for z */
+	return eval(topco, nz, z) / eval(botco, np, z);
+}
+
+void expand(std::complex<double> pz[], int npz, std::complex<double> coeffs[]){
+	int i;
+	coeffs[0] = 1.0;
+	for (i=0; i < npz; i++) coeffs[i+1] = 0.0;
+	for (i=0; i < npz; i++) multin(pz[i], npz, coeffs);
+}
+
+void expandpoly(int type, double *xcoeffs, double *ycoeffs, double *final_gain) {
+	std::complex<double> topcoeffs[3], botcoeffs[3]; int i;
+	expand(zplane.zeros, zplane.numzeros, topcoeffs);
+	expand(zplane.poles, zplane.numpoles, botcoeffs);
+	dc_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, 1.0);
+	double theta = 2* M_PI * raw_alpha1;
+	fc_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, exp(IMAG*theta));
+	hf_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, -1.0);
+	for (i = 0; i <= zplane.numzeros; i++) xcoeffs[i] = real(topcoeffs[i]) / real(botcoeffs[zplane.numpoles]);
+	for (i = 0; i <= zplane.numpoles; i++) ycoeffs[i] = -real(botcoeffs[i]) / real(botcoeffs[zplane.numpoles]);
+
+	if(type==FILTER_TYPE_HP) {
+		*final_gain=real(hf_gain);
+	}
+	if(type==FILTER_TYPE_LP) {
+		*final_gain=real(dc_gain);
+	}
+}
+
+void compute_s() {
+	for (int i = 0; i < 2*order; i++)
+	{
+		double theta = (order & 1) ? (i*M_PI) / order : ((i+0.5)*M_PI) / order;
+		choosepole(exp(IMAG*theta));
+	}
+}
+
+void compute_z_blt() /* given S-plane poles & zeros, compute Z-plane poles & zeros, by bilinear transform */
+ {
+	int i;
+	zplane.numpoles = splane.numpoles;
+	zplane.numzeros = splane.numzeros;
+	for (i=0; i < zplane.numpoles; i++) zplane.poles[i] = (2.0+splane.poles[i])/(2.0-splane.poles[i]);
+	for (i=0; i < zplane.numzeros; i++) zplane.zeros[i] = (2.0+splane.zeros[i])/(2.0-splane.zeros[i]);
+	while (zplane.numzeros < zplane.numpoles) zplane.zeros[zplane.numzeros++] = -1.0;
+}
+
+int order;
+unsigned int polemask;
+double xcoeffs[4], ycoeffs[4];
+double raw_alpha1, raw_alpha2;
+std::complex<double> dc_gain, fc_gain, hf_gain;
+double final_gain;
+double warped_alpha1, warped_alpha2;
+
+struct pzrep
+{ 
+	std::complex<double> poles[3], zeros[3];
+        int numpoles, numzeros;
+};
+pzrep splane, zplane;
+      
+    inline void set_hp_lr4(float freq, float sr)
+    {
+    	int type = 1;
+	raw_alpha1 = freq / sr;
+	raw_alpha2 = raw_alpha1;
+        polemask = ~0;
+	order = 2;
+	splane.numpoles = 0;
+	compute_s();
+	prewarp();
+	normalize(type);
+	compute_z_blt();
+	expandpoly(type, &xcoeffs[0], &ycoeffs[0], &final_gain);
+	a0 = xcoeffs[0];
+	a1 = xcoeffs[1];
+	a2 = xcoeffs[2];
+	b1 = ycoeffs[0];
+	b2 = ycoeffs[1];
+	gain = final_gain;
+	printf("hp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
+    }
+
+    inline void set_lp_lr4(float freq, float sr)
+    {
+    	int type = 2;
+	raw_alpha1 = freq / sr;
+	raw_alpha2 = raw_alpha1;
+        polemask = ~0;
+	order = 2;
+	splane.numpoles = 0;
+	compute_s();
+	prewarp();
+	normalize(type);
+	compute_z_blt();
+	expandpoly(type, &xcoeffs[0], &ycoeffs[0], &final_gain);
+	a0 = xcoeffs[0];
+	a1 = xcoeffs[1];
+	a2 = xcoeffs[2];
+	b1 = ycoeffs[0];
+	b2 = ycoeffs[1];
+	gain = final_gain;
+	printf("lp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
+    }
+
     /// copy coefficients from another biquad
     template<class U>
     inline void copy_coeffs(const biquad_coeffs<U> &src)
@@ -580,6 +737,121 @@ struct biquad_d1_lerp: public biquad_coeffs<Coeff>
     
 };
     
+
+/**
+ * Damien's LR4 filter routine:
+ * Two poles, two IIR Butterworth filters cascaded Q=1/sqrt(2).
+ */
+template<class Coeff = float, class T = float>
+struct biquad_lr4: public biquad_coeffs<Coeff>
+{
+    using biquad_coeffs<Coeff>::a0;
+    using biquad_coeffs<Coeff>::a1;
+    using biquad_coeffs<Coeff>::a2;
+    using biquad_coeffs<Coeff>::b1;
+    using biquad_coeffs<Coeff>::b2;
+    using biquad_coeffs<Coeff>::gain;
+    /// Filter 1
+    /// input
+    T x0; 
+    /// input
+    T x1; 
+    /// input
+    T x2;
+    /// output
+    T y0; 
+    /// output
+    T y1; 
+    /// output
+    T y2;
+
+    /// Filter 2 (cascaded)
+    /// input
+    T xx0; 
+    /// input
+    T xx1; 
+    /// input
+    T xx2;
+    /// output
+    T yy0; 
+    /// output
+    T yy1; 
+    /// output
+    T yy2;
+    
+    /// Constructor (initializes state to all zeros)
+    biquad_lr4()
+    {
+        reset();
+    }
+    /// process with twelve state variables
+    inline T process(T in)
+    {
+        x0 = x1;
+        x1 = x2;
+        x2 = in / gain;
+        y0 = y1;
+        y1 = y2;
+        y2 = a0 * x0 + a1 * x1 + a2 * x2 + b1 * y0 + b2 * y1;
+        xx0 = xx1;
+        xx1 = xx2;
+        xx2 = y2 / gain;
+        yy0 = yy1;
+        yy1 = yy2;
+        yy2 = a0 * xx0 + a1 * xx1 + a2 * xx2 + b1 * yy0 + b2 * yy1;
+	T out = yy2;
+        return out;
+    }
+    
+    /// direct I form with zero input
+    inline T process_zeroin()
+    {
+        x0 = x1;
+        x1 = x2;
+        x2 = 0.0f;
+        y0 = y1;
+        y1 = y2;
+        y2 = a0 * x0 + a1 * x1 + b1 * y0 + b2 * y1;
+        xx0 = xx1;
+        xx1 = xx2;
+        xx2 = y2 / gain;
+        yy0 = yy1;
+        yy1 = yy2;
+        yy2 = a0 * xx0 + a1 * xx1 + a2 * xx2 + b1 * yy0 + b2 * yy1;
+	T out = yy2;
+	return out;
+    }
+    
+    /// simplified version for lowpass case with two zeros at -1
+    inline T process_lp(T in)
+    {
+        T out = process(in);
+        return out;
+    }
+    /// Sanitize (set to 0 if potentially denormal) filter state
+    inline void sanitize() 
+    {
+        dsp::sanitize(x1);
+        dsp::sanitize(y1);
+        dsp::sanitize(x2);
+        dsp::sanitize(y2);
+    }
+    /// Reset state variables
+    inline void reset()
+    {
+        dsp::zero(x1);
+        dsp::zero(y1);
+        dsp::zero(x2);
+        dsp::zero(y2);
+    }
+    inline bool empty() const {
+        return (y1 == 0.f && y2 == 0.f);
+    }
+    
+};
+
+
+
 /// Compose two filters in series
 template<class F1, class F2>
 class filter_compose {

@@ -166,7 +166,7 @@ void biquad_filter_module::sanitize()
 }
 
 int biquad_filter_module::process_channel(uint16_t channel_no, const float *in, float *out, uint32_t numsamples, int inmask) {
-    dsp::biquad_d1<float> *filter;
+    dsp::biquad_lr4<float> *filter;
     switch (channel_no) {
     case 0:
         filter = left;
