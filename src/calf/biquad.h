@@ -29,6 +29,7 @@
 #define IMAG (std::complex<double>(0,1))
 #define FILTER_TYPE_HP 1
 #define FILTER_TYPE_LP 2
+#define MAXPZ 512 
 
 namespace dsp {
 
@@ -334,13 +335,13 @@ void multin(std::complex<double> w, int npz, std::complex<double> coeffs[]){
 	coeffs[0] = nw * coeffs[0];
 }
 
-std::complex<double> eval(std::complex<double> coeffs[], int npz, std::complex<double> z) {
+std::complex<double> eval(std::complex<double> coeffs[], int npz, std::complex<double> z) const {
 	 std::complex<double> sum = 0.0;
 	 for (int i = npz; i >= 0; i--) sum = (sum * z) + coeffs[i];
 	 return sum;
 }
 
-std::complex<double> evaluate(std::complex<double> topco[], int nz, std::complex<double> botco[], int np, std::complex<double> z)
+std::complex<double> evaluate(std::complex<double> topco[], int nz, std::complex<double> botco[], int np, std::complex<double> z) const
 { /* evaluate response, substituting for z */
 	return eval(topco, nz, z) / eval(botco, np, z);
 }
@@ -423,7 +424,7 @@ pzrep splane, zplane;
 	b1 = ycoeffs[0];
 	b2 = ycoeffs[1];
 	gain = final_gain;
-	printf("hp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
+	//printf("hp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
     }
 
     inline void set_lp_lr4(float freq, float sr)
@@ -445,7 +446,7 @@ pzrep splane, zplane;
 	b1 = ycoeffs[0];
 	b2 = ycoeffs[1];
 	gain = final_gain;
-	printf("lp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
+	//printf("lp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
     }
 
     /// copy coefficients from another biquad
@@ -459,10 +460,31 @@ pzrep splane, zplane;
         b2 = src.b2;
     }
     
+
+float freq_gain(float freq, float sr) const 
+{ 
+    typedef std::complex<double> cfloat;
+    int nzeros = 1;
+    int npoles = 2;
+    cfloat topcos[MAXPZ+1], botcos[MAXPZ+1]; 
+    topcos[0] = cfloat(a0, 0.0);
+    topcos[1] = cfloat(a1, 0.0);
+    topcos[2] = cfloat(a2, 0.0);	
+    botcos[0] = cfloat(-b1, 0.0);
+    botcos[1] = cfloat(-b2, 0.0);
+    
+    double theta = 2.0 * M_PI * freq / sr;
+    cfloat z = exp(cfloat(0.0, theta));
+    cfloat fr = evaluate(topcos, nzeros, botcos, npoles, z);
+    float mag = std::abs(fr);
+    //printf("(%.2f,%.2f) ", freq, mag);
+    return mag;
+}
+
     /// Return the filter's gain at frequency freq
     /// @param freq   Frequency to look up
     /// @param sr     Filter sample rate (used to convert frequency to angular frequency)
-    float freq_gain(float freq, float sr) const
+    float freq_gain_old(float freq, float sr) const
     {
         typedef std::complex<double> cfloat;
         freq *= 2.0 * M_PI / sr;
@@ -470,7 +492,7 @@ pzrep splane, zplane;
         
         return std::abs(h_z(z));
     }
-    
+
     /// Return H(z) the filter's gain at frequency freq
     /// @param z   Z variable (e^jw)
     cfloat h_z(const cfloat &z) const
@@ -793,7 +815,7 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
         y0 = y1;
         y1 = y2;
         y2 = a0 * x0 + a1 * x1 + a2 * x2 + b1 * y0 + b2 * y1;
-        xx0 = xx1;
+/*      xx0 = xx1;
         xx1 = xx2;
         xx2 = y2 / gain;
         yy0 = yy1;
@@ -801,6 +823,8 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
         yy2 = a0 * xx0 + a1 * xx1 + a2 * xx2 + b1 * yy0 + b2 * yy1;
 	T out = yy2;
         return out;
+*/
+	return y2;	
     }
     
     /// direct I form with zero input
@@ -812,7 +836,7 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
         y0 = y1;
         y1 = y2;
         y2 = a0 * x0 + a1 * x1 + b1 * y0 + b2 * y1;
-        xx0 = xx1;
+/*      xx0 = xx1;
         xx1 = xx2;
         xx2 = y2 / gain;
         yy0 = yy1;
@@ -820,6 +844,8 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
         yy2 = a0 * xx0 + a1 * xx1 + a2 * xx2 + b1 * yy0 + b2 * yy1;
 	T out = yy2;
 	return out;
+*/
+	return y2;
     }
     
     /// simplified version for lowpass case with two zeros at -1
@@ -831,6 +857,8 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
     /// Sanitize (set to 0 if potentially denormal) filter state
     inline void sanitize() 
     {
+        dsp::sanitize(x0);
+        dsp::sanitize(y0);
         dsp::sanitize(x1);
         dsp::sanitize(y1);
         dsp::sanitize(x2);
@@ -839,13 +867,15 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
     /// Reset state variables
     inline void reset()
     {
+    	dsp::zero(x0);
+	dsp::zero(y0);
         dsp::zero(x1);
         dsp::zero(y1);
         dsp::zero(x2);
         dsp::zero(y2);
     }
     inline bool empty() const {
-        return (y1 == 0.f && y2 == 0.f);
+        return (y0 == 0.f && y1 == 0.f && y2 == 0.f);
     }
     
 };

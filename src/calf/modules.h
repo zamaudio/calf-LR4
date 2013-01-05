@@ -116,7 +116,7 @@ public:
         // XXXKF this is resonance of a single stage, obviously for three stages, resonant gain will be different
         float q    = inertia_resonance.get_last();
         int   mode = dsp::fastf2i_drm(*params[Metadata::par_mode]);
-        // printf("freq = %f q = %f mode = %d\n", freq, q, mode);
+        //printf("freq = %f q = %f mode = %d\n", freq, q, mode);
         
         int inertia = dsp::fastf2i_drm(*params[Metadata::par_inertia]);
         if (inertia != inertia_cutoff.ramp.length()) {

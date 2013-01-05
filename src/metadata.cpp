@@ -304,7 +304,7 @@ CALF_PLUGIN_INFO(sidechaincompressor) = { 0x8517, "Sidechaincompressor", "Calf S
 CALF_PORT_NAMES(multibandcompressor) = {"In L", "In R", "Out L", "Out R"};
 
 const char *multibandcompressor_detection_names[] = { "RMS", "Peak" };
-const char *multibandcompressor_filter_choices[] = { "12dB", "36dB"};
+const char *multibandcompressor_filter_choices[] = { "LR4", "LR8"};
 
 CALF_PORT_PROPS(multibandcompressor) = {
     { 0,           0,           1,     0,  PF_BOOL | PF_CTL_TOGGLE, NULL, "bypass", "Bypass" },
