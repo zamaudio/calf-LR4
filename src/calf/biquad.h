@@ -26,7 +26,7 @@
 #include <complex>
 #include "primitives.h"
 
-#define IMAG (std::complex<double>(0,1))
+#define IMAG (std::complex<double>(0.0,1.0))
 #define FILTER_TYPE_HP 1
 #define FILTER_TYPE_LP 2
 #define MAXPZ 512 
@@ -61,7 +61,7 @@ public:
     
     inline void set_null()
     {
-        a0 = 1.0;
+        a0 = gain = 1.0;
         b1 = b2 = a1 = a2 = 0.f;
     }
     
@@ -424,7 +424,7 @@ pzrep splane, zplane;
 	b1 = ycoeffs[0];
 	b2 = ycoeffs[1];
 	gain = final_gain;
-	printf("hp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
+	//printf("hp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
     }
 
     inline void set_lp_lr4(float freq, float sr)
@@ -446,7 +446,7 @@ pzrep splane, zplane;
 	b1 = ycoeffs[0];
 	b2 = ycoeffs[1];
 	gain = final_gain;
-	printf("lp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
+	//printf("lp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
     }
 
     /// copy coefficients from another biquad
@@ -458,6 +458,7 @@ pzrep splane, zplane;
         a2 = src.a2;
         b1 = src.b1;
         b2 = src.b2;
+        gain = src.gain;
     }
     
 
@@ -816,7 +817,10 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
     /// process with twelve state variables
     inline T process(T in)
     {
-        x0 = x1;
+	dsp::sanitize_denormal(in);
+//	printf("<%f ",in);
+
+	x0 = x1;
         x1 = x2;
         x2 = in / gain;
         y0 = y1;
@@ -833,6 +837,7 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
         yy2 = a0 * xx0 + a1 * xx1 + a2 * xx2 + b1 * yy0 + b2 * yy1;
 	
 	T out = yy2;
+//	printf("%f> ",out);
         return out;
     }
     
@@ -852,24 +857,40 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
     /// Sanitize (set to 0 if potentially denormal) filter state
     inline void sanitize() 
     {
-/*
-	dsp::sanitize(x0);
-        dsp::sanitize(y0);
-        dsp::sanitize(x1);
-        dsp::sanitize(y1);
-        dsp::sanitize(x2);
-        dsp::sanitize(y2);
-*/
+
+	//printf("before san <%f %f %f> <%f %f %f>\n",x0,x1,x2,y0,y1,y2);
+	dsp::sanitize_denormal(x0);
+        dsp::sanitize_denormal(y0);
+        dsp::sanitize_denormal(x1);
+        dsp::sanitize_denormal(y1);
+        dsp::sanitize_denormal(x2);
+        dsp::sanitize_denormal(y2);
+	dsp::sanitize_denormal(xx0);
+        dsp::sanitize_denormal(yy0);
+        dsp::sanitize_denormal(xx1);
+        dsp::sanitize_denormal(yy1);
+        dsp::sanitize_denormal(xx2);
+        dsp::sanitize_denormal(yy2);
+	//printf("after san  <%f %f %f> <%f %f %f>\n",x0,x1,x2,y0,y1,y2);
+
     }
     /// Reset state variables
     inline void reset()
     {
-    	dsp::zero(x0);
+	//printf("before zer <%f %f %f> <%f %f %f>\n",x0,x1,x2,y0,y1,y2);
+ 	dsp::zero(x0);
 	dsp::zero(y0);
         dsp::zero(x1);
         dsp::zero(y1);
-        //dsp::zero(x2);
-        //dsp::zero(y2);
+        dsp::zero(x2);
+        dsp::zero(y2);
+ 	dsp::zero(xx0);
+	dsp::zero(yy0);
+        dsp::zero(xx1);
+        dsp::zero(yy1);
+        dsp::zero(xx2);
+        dsp::zero(yy2);
+	//printf("after zer  <%f %f %f> <%f %f %f>\n",x0,x1,x2,y0,y1,y2);
     }
     inline bool empty() const {
         return (y0 == 0.f && y1 == 0.f && y2 == 0.f);
