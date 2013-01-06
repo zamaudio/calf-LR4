@@ -31,7 +31,269 @@
 #include "metadata.h"
 #include "loudness.h"
 
+#include <iostream>
+#include <cmath>
+#include <complex>
+
 namespace calf_plugins {
+#define IMAG (std::complex<double>(0,1))
+
+#define FILTER_TYPE_HP 1
+
+#define FILTER_TYPE_LP 2
+
+#define LP1L 0
+#define HP1L 1
+#define LP2L 2
+#define HP2L 3
+#define LP1R 4
+#define HP1R 5
+#define LP2R 6
+#define HP2R 7
+
+
+struct pzrep
+
+{ std::complex<double> poles[3], zeros[3];
+    int numpoles, numzeros;
+ };
+
+// Butterworth digital filter coefficient calculator code
+// thanks to late Tony Fisher of University of York, Computer Science Dept
+
+class ButterworthCalculator {
+
+ pzrep splane, zplane;
+ int order;
+
+
+ int type; // HP or LP
+ double raw_alpha1, raw_alpha2;
+ std::complex<double> dc_gain, fc_gain, hf_gain;
+ double final_gain;
+ double warped_alpha1, warped_alpha2;
+ unsigned int polemask;
+ double xcoeffs[4], ycoeffs[4];
+
+void choosepole(std::complex<double> z)
+{
+	if (real(z) < 0.0)
+        {
+		if (polemask & 1) splane.poles[splane.numpoles++] = z;
+		polemask >>= 1;
+	}
+}
+
+void prewarp(){
+	warped_alpha1 = tan(M_PI * raw_alpha1) / M_PI;
+	warped_alpha2 = tan(M_PI * raw_alpha2) / M_PI;
+}
+
+void normalize()	{
+	double w1 = 2 * M_PI * warped_alpha1;
+	if(type==FILTER_TYPE_LP) {
+		for (int i = 0; i < splane.numpoles; i++) {
+			splane.poles[i] = splane.poles[i] * w1;
+		}
+		splane.numzeros = 0;
+	}
+
+	if(type==FILTER_TYPE_HP) {
+		for (int i=0; i < splane.numpoles; i++) splane.poles[i] = w1 / splane.poles[i];
+		for (int i=0; i < splane.numpoles; i++) splane.zeros[i] = 0.0;	 /* also N zeros at (0,0) */
+		splane.numzeros = splane.numpoles;
+	}
+}
+
+void multin(std::complex<double> w, int npz, std::complex<double> coeffs[]){
+	/* multiply factor (z-w) into coeffs */
+	std::complex<double> nw = -w;
+	for (int i = npz; i >= 1; i--) coeffs[i] = (nw * coeffs[i]) + coeffs[i-1];
+	coeffs[0] = nw * coeffs[0];
+}
+
+
+
+std::complex<double> eval(std::complex<double> coeffs[], int npz, std::complex<double> z) {
+	 std::complex<double> sum = 0.0;
+	 for (int i = npz; i >= 0; i--) sum = (sum * z) + coeffs[i];
+	 return sum;
+}
+
+
+
+std::complex<double> evaluate(std::complex<double> topco[], int nz, std::complex<double> botco[], int np, std::complex<double> z)
+{ /* evaluate response, substituting for z */
+	return eval(topco, nz, z) / eval(botco, np, z);
+}
+
+
+void expand(std::complex<double> pz[], int npz, std::complex<double> coeffs[]){
+	int i;
+	coeffs[0] = 1.0;
+	for (i=0; i < npz; i++) coeffs[i+1] = 0.0;
+	for (i=0; i < npz; i++) multin(pz[i], npz, coeffs);
+}
+
+void expandpoly() {
+	std::complex<double> topcoeffs[3], botcoeffs[3]; int i;
+	expand(zplane.zeros, zplane.numzeros, topcoeffs);
+	expand(zplane.poles, zplane.numpoles, botcoeffs);
+	dc_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, 1.0);
+	double theta = 2* M_PI * raw_alpha1;
+	fc_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, exp(IMAG*theta));
+	hf_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, -1.0);
+	for (i = 0; i <= zplane.numzeros; i++) xcoeffs[i] = real(topcoeffs[i]) / real(botcoeffs[zplane.numpoles]);
+	for (i = 0; i <= zplane.numpoles; i++) ycoeffs[i] = -real(botcoeffs[i]) / real(botcoeffs[zplane.numpoles]);
+
+	if(type==FILTER_TYPE_HP) {
+		final_gain=real(hf_gain);
+	}
+	if(type==FILTER_TYPE_LP) {
+		final_gain=real(dc_gain);
+	}
+}
+
+
+
+void compute_s() {
+	for (int i = 0; i < 2*order; i++)
+	{
+		double theta = (order & 1) ? (i*M_PI) / order : ((i+0.5)*M_PI) / order;
+		choosepole(exp(IMAG*theta));
+	}
+}
+
+void printrecurrence(){
+	 std::cout << xcoeffs[0]<<" "<< xcoeffs[1]<<" " << xcoeffs[2]<<std::endl;
+	 std::cout << ycoeffs[0]<<" "<< ycoeffs[1]<<std::endl;
+	 std::cout << final_gain<<std::endl;
+}
+
+ void compute_z_blt() /* given S-plane poles & zeros, compute Z-plane poles & zeros, by bilinear transform */
+ {
+	int i;
+	zplane.numpoles = splane.numpoles;
+	zplane.numzeros = splane.numzeros;
+	for (i=0; i < zplane.numpoles; i++) zplane.poles[i] = (2.0+splane.poles[i])/(2.0-splane.poles[i]);
+	for (i=0; i < zplane.numzeros; i++) zplane.zeros[i] = (2.0+splane.zeros[i])/(2.0-splane.zeros[i]);
+	while (zplane.numzeros < zplane.numpoles) zplane.zeros[zplane.numzeros++] = -1.0;
+}
+
+public :
+void run(int ftype, double edge, double srate, double & a1, double & a2, double & a3, double & b1, double & b2, double & gain) {
+	type=ftype;
+	polemask = ~0;
+	order=2;
+	splane.numpoles = 0;
+	raw_alpha1=edge/srate;
+	raw_alpha2 = raw_alpha1;
+	compute_s();
+	prewarp();
+	normalize();
+	compute_z_blt();
+	expandpoly();
+
+	a1 = xcoeffs[0];
+
+	a2 = xcoeffs[1];
+
+	a3 = xcoeffs[2];
+
+	b1 = ycoeffs[0];
+
+	b2 = ycoeffs[1];
+
+	gain = final_gain;
+
+//	printrecurrence();
+}
+
+};
+
+
+
+// linkwitz-riley active crossover
+class xover_audio_module: public audio_module<xover_metadata>
+{
+    using audio_module<xover_metadata>::ins;
+    using audio_module<xover_metadata>::outs;
+    using audio_module<xover_metadata>::params;
+
+private:
+    float xv[4][3], yv[4][3], xv2[4][3], yv2[4][3];
+    double a1[8],a2[8],a3[8],b1[8],b2[8],gain[8];
+    float chain;
+    ButterworthCalculator b ;
+public:
+    uint32_t srate;
+    //static parameter_properties param_props[];
+
+    void params_changed() {
+       b.run(FILTER_TYPE_LP, *params[par_xover1],48000.0,a1[LP1L],a2[LP1L],a3[LP1L],b1[LP1L],b2[LP1L],gain[LP1L]);
+	b.run(FILTER_TYPE_HP, *params[par_xover1],48000.0,a1[HP1L],a2[HP1L],a3[HP1L],b1[HP1L],b2[HP1L],gain[HP1L]);
+	b.run(FILTER_TYPE_LP, *params[par_xover2],48000.0,a1[LP2L],a2[LP2L],a3[LP2L],b1[LP2L],b2[LP2L],gain[LP2L]);
+	b.run(FILTER_TYPE_HP, *params[par_xover2],48000.0,a1[HP2L],a2[HP2L],a3[HP2L],b1[HP2L],b2[HP2L],gain[HP2L]);
+    }
+
+    xover_audio_module() {
+	for(int i=0;i<4;++i) {
+		for(int j=0;j<3;++j) {
+			xv[i][j]=0.0;
+			yv[i][j]=0.0;
+			xv2[i][j]=0.0;
+			yv2[i][j]=0.0;
+		}
+	}
+        //*params[par_xover1]=400.0;
+	//*params[par_xover2]=1400.0;
+	//get coefficients for xover network at 400Hz & 1400Hz, samplerate 48kHz
+	for (int  i = 0; i<3; i+=2) {
+
+	    b.run(FILTER_TYPE_LP, 400.0+500.0*i,48000.0,a1[i],a2[i],a3[i],b1[i],b2[i],gain[i]);
+	    b.run(FILTER_TYPE_HP, 400.0+500.0*i,48000.0,a1[i+1],a2[i+1],a3[i+1],b1[i+1],b2[i+1],gain[i+1]);
+	}
+    }
+
+    uint32_t process(uint32_t offset, uint32_t numsamples, uint32_t inputs_mask, uint32_t outputs_mask) {
+        params_changed();
+
+	if (!inputs_mask) return 0;
+
+	numsamples += offset;
+        for (uint32_t i = offset; i < numsamples; ++i) {
+
+	     outs[0][i] = runfilter(0,ins[0][i],a1[LP1L],a2[LP1L],a3[LP1L],b1[LP1L],b2[LP1L],gain[LP1L]);
+            chain      = runfilter(1,ins[0][i],a1[HP1L],a2[HP1L],a3[HP1L],b1[HP1L],b2[HP1L],gain[HP1L]);
+            outs[1][i] = runfilter(2,chain    ,a1[LP2L],a2[LP2L],a3[LP2L],b1[LP2L],b2[LP2L],gain[LP2L]);
+	     outs[2][i] = runfilter(3,ins[0][i],a1[HP2L],a2[HP2L],a3[HP2L],b1[HP2L],b2[HP2L],gain[HP2L]);
+
+	}
+
+        return inputs_mask;
+    }
+
+    float runfilter(int n,float input,float a1,float a2,float a3,float b1,float b2,float gain) {
+        float intermediate = 0;
+
+        /* LR-4 Digital Filter */
+        xv[n][0] = xv[n][1]; xv[n][1] = xv[n][2];
+        xv[n][2] = input / gain;
+        yv[n][0] = yv[n][1]; yv[n][1] = yv[n][2];
+        yv[n][2] =   (a1*xv[n][0] + a3*xv[n][2]) + a2*xv[n][1]
+                     + (b1*yv[n][0]) + (b2*yv[n][1]);
+        intermediate = yv[n][2];
+
+        xv2[n][0] = xv2[n][1]; xv2[n][1] = xv2[n][2];
+        xv2[n][2] = intermediate / gain;
+        yv2[n][0] = yv2[n][1]; yv2[n][1] = yv2[n][2];
+        yv2[n][2] =   (a1*xv2[n][0] + a3*xv2[n][2]) + a2*xv2[n][1]
+                     + (b1*yv2[n][0]) + (b2*yv2[n][1]);
+        return yv2[n][2];
+    }
+
+};
+
 
 struct ladspa_plugin_info;
 
@@ -112,7 +374,7 @@ public:
     void calculate_filter()
     {
         float freq = inertia_cutoff.get_last();
-        // printf("freq=%g inr.cnt=%d timer.left=%d\n", freq, inertia_cutoff.count, timer.left);
+        printf("freq=%g inr.cnt=%d timer.left=%d\n", freq, inertia_cutoff.count, timer.left);
         // XXXKF this is resonance of a single stage, obviously for three stages, resonant gain will be different
         float q    = inertia_resonance.get_last();
         int   mode = dsp::fastf2i_drm(*params[Metadata::par_mode]);

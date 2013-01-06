@@ -441,7 +441,7 @@ public:
 class biquad_filter_module: public filter_module_iface
 {
 private:
-    dsp::biquad_lr4<float> left[3], right[3];
+    dsp::biquad_d1<float> left[2], right[2];
     int order;
 
 public:
@@ -451,7 +451,8 @@ public:
            mode_12db_hp = 3, mode_24db_hp = 4, mode_36db_hp = 5,
            mode_6db_bp  = 6, mode_12db_bp = 7, mode_18db_bp = 8,
            mode_6db_br  = 9, mode_12db_br = 10, mode_18db_br = 11,
-           mode_count
+//           mode_lr4_lp = 12, mode_lr4_hp = 13,
+	   mode_count
     };
 
 public:

@@ -358,7 +358,7 @@ void expandpoly(int type, double *xcoeffs, double *ycoeffs, double *final_gain) 
 	expand(zplane.zeros, zplane.numzeros, topcoeffs);
 	expand(zplane.poles, zplane.numpoles, botcoeffs);
 	dc_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, 1.0);
-	double theta = 2* M_PI * raw_alpha1;
+	double theta = 2.0 * M_PI * raw_alpha1;
 	fc_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, exp(IMAG*theta));
 	hf_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, -1.0);
 	for (i = 0; i <= zplane.numzeros; i++) xcoeffs[i] = real(topcoeffs[i]) / real(botcoeffs[zplane.numpoles]);
@@ -394,7 +394,7 @@ int order;
 unsigned int polemask;
 double xcoeffs[4], ycoeffs[4];
 double raw_alpha1, raw_alpha2;
-std::complex<double> dc_gain, fc_gain, hf_gain;
+cfloat dc_gain, fc_gain, hf_gain;
 double final_gain;
 double warped_alpha1, warped_alpha2;
 
@@ -424,7 +424,7 @@ pzrep splane, zplane;
 	b1 = ycoeffs[0];
 	b2 = ycoeffs[1];
 	gain = final_gain;
-	//printf("hp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
+	printf("hp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
     }
 
     inline void set_lp_lr4(float freq, float sr)
@@ -446,7 +446,7 @@ pzrep splane, zplane;
 	b1 = ycoeffs[0];
 	b2 = ycoeffs[1];
 	gain = final_gain;
-	//printf("lp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
+	printf("lp: a0=%f a1=%f a2=%f b1=%f b2=%f gain=%f\n",a0,a1,a2,b1,b2,gain);
     }
 
     /// copy coefficients from another biquad
@@ -463,19 +463,26 @@ pzrep splane, zplane;
 
 float freq_gain(float freq, float sr) const 
 { 
+
     typedef std::complex<double> cfloat;
-    int nzeros = 1;
+    int nzeros = 2;
     int npoles = 2;
     cfloat topcos[MAXPZ+1], botcos[MAXPZ+1]; 
     topcos[0] = cfloat(a0, 0.0);
     topcos[1] = cfloat(a1, 0.0);
     topcos[2] = cfloat(a2, 0.0);	
-    botcos[0] = cfloat(-b1, 0.0);
-    botcos[1] = cfloat(-b2, 0.0);
+    botcos[0] = cfloat(b1, 0.0);
+    botcos[1] = cfloat(b2, 0.0);
     
     double theta = 2.0 * M_PI * freq / sr;
+
     cfloat z = exp(cfloat(0.0, theta));
     cfloat fr = evaluate(topcos, nzeros, botcos, npoles, z);
+/*
+    double theta = 2.0 * M_PI * freq / sr;
+    cfloat zinv  = exp(cfloat(0.0, -theta));
+    cfloat fr = cfloat(1.0, 0.0) / ((cfloat(a0, 0.0) + cfloat(a1, 0.0) * zinv + cfloat(a2, 0.0) * zinv * zinv) / (cfloat(1.0, 0.0) + cfloat(b1, 0.0) * zinv + cfloat(b2, 0.0) * zinv * zinv));
+*/
     float mag = std::abs(fr);
     //printf("(%.2f,%.2f) ", freq, mag);
     return mag;
@@ -815,54 +822,44 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
         y0 = y1;
         y1 = y2;
         y2 = a0 * x0 + a1 * x1 + a2 * x2 + b1 * y0 + b2 * y1;
-/*      xx0 = xx1;
+        
+	T temp = y2;
+
+	xx0 = xx1;
         xx1 = xx2;
-        xx2 = y2 / gain;
+        xx2 = temp / gain;
         yy0 = yy1;
         yy1 = yy2;
         yy2 = a0 * xx0 + a1 * xx1 + a2 * xx2 + b1 * yy0 + b2 * yy1;
+	
 	T out = yy2;
         return out;
-*/
-	return y2;	
     }
     
-    /// direct I form with zero input
+    /// zero input
     inline T process_zeroin()
     {
-        x0 = x1;
-        x1 = x2;
-        x2 = 0.0f;
-        y0 = y1;
-        y1 = y2;
-        y2 = a0 * x0 + a1 * x1 + b1 * y0 + b2 * y1;
-/*      xx0 = xx1;
-        xx1 = xx2;
-        xx2 = y2 / gain;
-        yy0 = yy1;
-        yy1 = yy2;
-        yy2 = a0 * xx0 + a1 * xx1 + a2 * xx2 + b1 * yy0 + b2 * yy1;
-	T out = yy2;
-	return out;
-*/
-	return y2;
+        T zero = 0.f;
+	return process(zero);
     }
     
     /// simplified version for lowpass case with two zeros at -1
     inline T process_lp(T in)
     {
-        T out = process(in);
-        return out;
+        return process(in);
     }
+
     /// Sanitize (set to 0 if potentially denormal) filter state
     inline void sanitize() 
     {
-        dsp::sanitize(x0);
+/*
+	dsp::sanitize(x0);
         dsp::sanitize(y0);
         dsp::sanitize(x1);
         dsp::sanitize(y1);
         dsp::sanitize(x2);
         dsp::sanitize(y2);
+*/
     }
     /// Reset state variables
     inline void reset()
@@ -871,8 +868,8 @@ struct biquad_lr4: public biquad_coeffs<Coeff>
 	dsp::zero(y0);
         dsp::zero(x1);
         dsp::zero(y1);
-        dsp::zero(x2);
-        dsp::zero(y2);
+        //dsp::zero(x2);
+        //dsp::zero(y2);
     }
     inline bool empty() const {
         return (y0 == 0.f && y1 == 0.f && y2 == 0.f);

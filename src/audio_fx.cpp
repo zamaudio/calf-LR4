@@ -137,6 +137,14 @@ void biquad_filter_module::calculate_filter(float freq, float q, int mode, float
     } else if ( mode_6db_bp <= mode && mode <= mode_18db_bp ) {
         order = mode - mode_6db_bp + 1;
         left[0].set_bp_rbj(freq, pow(q, 1.0 / order), srate, gain);
+/*
+    } else if ( mode == mode_lr4_lp) {
+        order = 1;
+        left[0].set_lp_lr4(freq, srate);
+    } else if ( mode == mode_lr4_hp) {
+        order = 1;
+        left[0].set_hp_lr4(freq, srate);
+*/
     } else { // mode_6db_br <= mode <= mode_18db_br
         order = mode - mode_6db_br + 1;
         left[0].set_br_rbj(freq, order * 0.1 * q, srate, gain);
@@ -166,7 +174,7 @@ void biquad_filter_module::sanitize()
 }
 
 int biquad_filter_module::process_channel(uint16_t channel_no, const float *in, float *out, uint32_t numsamples, int inmask) {
-    dsp::biquad_lr4<float> *filter;
+    dsp::biquad_d1<float> *filter;
     switch (channel_no) {
     case 0:
         filter = left;
