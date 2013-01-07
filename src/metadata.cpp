@@ -451,18 +451,6 @@ CALF_PLUGIN_INFO(gate) = { 0x8503, "Gate", "Calf Gate", "Damien Zammit / Thor Ha
 
 ////////////////////////////////////////////////////////////////////////////
 
-CALF_PORT_NAMES(xover) = {"IN","lo","mid","hi"};
-CALF_PORT_PROPS(xover) = {
-
-    { 160,       20, 20000, 0, PF_FLOAT | PF_SCALE_LOG | PF_CTL_KNOB | PF_UNIT_HZ, NULL, "xover1", "Split LO" },
-    { 800,       20, 20000, 0, PF_FLOAT | PF_SCALE_LOG | PF_CTL_KNOB | PF_UNIT_HZ, NULL, "xover2", "Split HI" },
-
-};
-
-CALF_PLUGIN_INFO(xover) = { 0x8515, "LR-4", "Calf LR-4 triple band crossover network", "Damien Zammit", calf_plugins::calf_copyright_info, "LR4XoverPlugin" };
-
-///////////////////////////////////////////////
-
 CALF_PORT_NAMES(sidechaingate) = {"In L", "In R", "Out L", "Out R"};
 
 const char *sidechaingate_detection_names[] = { "RMS", "Peak" };

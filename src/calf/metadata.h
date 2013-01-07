@@ -220,14 +220,6 @@ struct gate_metadata: public plugin_metadata<gate_metadata>
     PLUGIN_NAME_ID_LABEL("gate", "gate", "Gate")
 };
 
-/// Damien's 3 band Xover - metadata
-struct xover_metadata: public plugin_metadata<xover_metadata>
-{
-    enum { in_count = 1, out_count = 3, ins_optional = 0, outs_optional = 0, support_midi = false, require_midi = false, rt_capable = true };
-    enum { par_xover1, par_xover2, param_count };
-    PLUGIN_NAME_ID_LABEL("xover", "xover", "LR4 3-band Xover")
-};
-
 /// Markus's sidechain gate - metadata
 struct sidechaingate_metadata: public plugin_metadata<sidechaingate_metadata>
 {

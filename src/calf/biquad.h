@@ -29,7 +29,7 @@
 #define IMAG (std::complex<double>(0.0,1.0))
 #define FILTER_TYPE_HP 1
 #define FILTER_TYPE_LP 2
-#define MAXPZ 512 
+#define MAXPZ 3 
 
 namespace dsp {
 
@@ -464,28 +464,28 @@ pzrep splane, zplane;
 
 float freq_gain(float freq, float sr) const 
 { 
-
     typedef std::complex<double> cfloat;
+
     int nzeros = 2;
-    int npoles = 2;
+    int npoles = 1;
     cfloat topcos[MAXPZ+1], botcos[MAXPZ+1]; 
-    topcos[0] = cfloat(a0, 0.0);
-    topcos[1] = cfloat(a1, 0.0);
-    topcos[2] = cfloat(a2, 0.0);	
-    botcos[0] = cfloat(b1, 0.0);
-    botcos[1] = cfloat(b2, 0.0);
+    topcos[0] = cfloat(a0,0.0);
+    topcos[1] = cfloat(a1,0.0);
+    topcos[2] = cfloat(a2,0.0);	
+    botcos[0] = cfloat(-b1,0.0);
+    botcos[1] = cfloat(-b2,0.0);
     
     double theta = 2.0 * M_PI * freq / sr;
 
-    cfloat z = exp(cfloat(0.0, theta));
+    cfloat z = cfloat(cos(theta), sin(theta)) / cfloat(gain, 0.0);
     cfloat fr = evaluate(topcos, nzeros, botcos, npoles, z);
 /*
     double theta = 2.0 * M_PI * freq / sr;
-    cfloat zinv  = exp(cfloat(0.0, -theta));
-    cfloat fr = cfloat(1.0, 0.0) / ((cfloat(a0, 0.0) + cfloat(a1, 0.0) * zinv + cfloat(a2, 0.0) * zinv * zinv) / (cfloat(1.0, 0.0) + cfloat(b1, 0.0) * zinv + cfloat(b2, 0.0) * zinv * zinv));
+    cfloat zinv  = exp(cfloat(0.0, theta));
+    cfloat fr = ((cfloat(a0, 0.0) + cfloat(a1, 0.0) * zinv + cfloat(a2, 0.0) * zinv * zinv) / (cfloat(-gain, 0.0) + (cfloat(-b1, 0.0) * zinv + cfloat(-b2, 0.0) * zinv * zinv)));
 */
-    float mag = std::abs(fr);
-    //printf("(%.2f,%.2f) ", freq, mag);
+    float mag = std::abs(fr); // gain;
+    printf("%.2f %.4f\n", freq, mag);
     return mag;
 }
 
